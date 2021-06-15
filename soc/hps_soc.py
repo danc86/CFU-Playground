@@ -52,12 +52,6 @@ class HpsSoC(LiteXSoC):
     # Memory layout
     csr_origin = 0xf0000000
     spiflash_region = SoCRegion(0x20000000, 16*MB, cached=True)
-    # The start of the SPI Flash contains the FPGA gateware. Our ROM is after
-    # that.
-    rom_offset = 2*MB
-    rom_origin = spiflash_region.origin + rom_offset
-    rom_region = SoCRegion(rom_origin, spiflash_region.size - rom_offset,
-                           cached=True, linker=True)
     sram_origin = 0x40000000
     sram_region = SoCRegion(sram_origin, RAM_SIZE, cached=True, linker=True)
     vexriscv_region = SoCRegion(origin=0xf00f0000, size=0x100)
@@ -65,10 +59,9 @@ class HpsSoC(LiteXSoC):
     # These variables are needed by builder.py. Normally they're defined by
     # SoCCore, but we don't inherit from SoCCore.
     integrated_rom_initialized = False
-    integrated_rom_size = rom_region.size
+    integrated_rom_size = 0x10000
 
     mem_map = {
-        "rom":  rom_offset,
         "sram": sram_origin,
         "csr":  csr_origin,
     }
@@ -88,7 +81,6 @@ class HpsSoC(LiteXSoC):
         self.add_controller("ctrl")
         self.add_cpu(self.cpu_type,
                      variant=variant,
-                     reset_address=self.rom_origin,
                      cfu=cpu_cfu)
 
         # RAM
@@ -101,7 +93,7 @@ class HpsSoC(LiteXSoC):
             self.setup_flash()
 
         # ROM (part of SPI Flash)
-        self.bus.add_region("rom", self.rom_region)
+        self.add_rom("rom", self.cpu.reset_address, self.integrated_rom_size)
 
         # "LEDS" - Just one LED on JTAG port
         self.submodules.leds = LedChaser(
@@ -158,7 +150,7 @@ class HpsSoC(LiteXSoC):
 
     # This method is defined on SoCCore and the builder assumes it exists.
     def initialize_rom(self, data):
-        pass
+        self.init_rom("rom", contents=data)
 
     @property
     def mem_regions(self):
