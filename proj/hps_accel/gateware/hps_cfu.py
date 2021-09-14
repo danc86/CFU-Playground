@@ -14,7 +14,8 @@
 
 from nmigen import Cat, Signal, unsigned
 from nmigen.hdl.rec import Layout
-from nmigen_cfu import Cfu, InstructionBase, all_words
+from nmigen_cfu import Cfu, InstructionBase, Module, all_words
+from nmigen_cfu.util import SimpleElaboratable
 
 from .constants import Constants
 from .filter_store import FilterStore
@@ -22,7 +23,8 @@ from .get import GetInstruction
 from .input_store import InputStore
 from .macc import MultiplyAccumulate
 from .set import SetInstruction
-from .stream import BinaryCombinatorialActor, ConcatenatingBuffer, connect
+from .stream import BinaryCombinatorialActor, ConcatenatingBuffer, Endpoint, \
+    connect
 
 
 class PingInstruction(InstructionBase):
@@ -57,6 +59,57 @@ class AddOneActor(BinaryCombinatorialActor):
         m.d.comb += output.eq(input + 1)
 
 
+class OperandsBuffer(SimpleElaboratable):
+    """A buffer which collects streams of input values and filter values
+    and passes them onwards as a single stream of all operands.
+
+    If incoming values arrive at different times, they are held in the buffer
+    until there is a complete set of valid operands to pass onwards.
+
+    Attributes
+    ----------
+
+    input_data: list[Endpoint], in
+      List of 4 streams of 32-bit input values.
+
+    filter_data: list[Endpoint], in
+      List of 4 streams of 32-bit filter values.
+
+    output: Endpoint, out
+      Stream of concatenated operand values.
+
+    reset: Signal
+      Set high to reset this buffer. Set low to enable buffer.
+    """
+
+    def __init__(self):
+        self.input_data = [Endpoint(32, name=f'input_{i}') for i in range(4)]
+        self.filter_data = [Endpoint(32, name=f'filter_{i}') for i in range(4)]
+        self.output = Endpoint(Layout([('inputs', 128), ('filters', 128)]))
+        self.reset = Signal()
+
+    def elab(self, m: Module):
+        # Just wrap a ConcatenatingBuffer but arrange the streams to match our
+        # desired layouts.
+        input_streams = \
+            [(f'input_{i}', 32) for i in range(4)] + \
+            [(f'filter_{i}', 32) for i in range(4)]
+        m.submodules['buf'] = buf = ConcatenatingBuffer(input_streams)
+        m.d.comb += [connect(self.input_data[i], buf.inputs[f'input_{i}'])
+                     for i in range(4)]
+        m.d.comb += [connect(self.filter_data[i], buf.inputs[f'filter_{i}'])
+                     for i in range(4)]
+        m.d.comb += [
+            self.output.valid.eq(buf.output.valid),
+            self.output.payload.inputs.eq(
+                Cat(*[buf.output.payload[f'input_{i}'] for i in range(4)])),
+            self.output.payload.filters.eq(
+                Cat(*[buf.output.payload[f'filter_{i}'] for i in range(4)])),
+            buf.output.ready.eq(self.output.ready),
+            buf.reset.eq(self.reset),
+        ]
+
+
 class HpsCfu(Cfu):
 
     def __init__(self, filter_store_depth=Constants.MAX_FILTER_WORDS):
@@ -76,36 +129,13 @@ class HpsCfu(Cfu):
         # Join all 4 input value streams and all 4 filter value streams
         # into a single stream holding all operands.
         # Then connect that to the macc.
-        operands_buffer = ConcatenatingBuffer([
-            ('input_0', unsigned(32)),
-            ('input_1', unsigned(32)),
-            ('input_2', unsigned(32)),
-            ('input_3', unsigned(32)),
-            ('filter_0', unsigned(32)),
-            ('filter_1', unsigned(32)),
-            ('filter_2', unsigned(32)),
-            ('filter_3', unsigned(32)),
-        ])
-        m.submodules['operands_buffer'] = operands_buffer
-        m.d.comb += [
-            connect(input_store.data_output[0],
-                    operands_buffer.inputs['input_0']),
-            connect(input_store.data_output[1],
-                    operands_buffer.inputs['input_1']),
-            connect(input_store.data_output[2],
-                    operands_buffer.inputs['input_2']),
-            connect(input_store.data_output[3],
-                    operands_buffer.inputs['input_3']),
-            connect(filter_store.output[0],
-                    operands_buffer.inputs['filter_0']),
-            connect(filter_store.output[1],
-                    operands_buffer.inputs['filter_1']),
-            connect(filter_store.output[2],
-                    operands_buffer.inputs['filter_2']),
-            connect(filter_store.output[3],
-                    operands_buffer.inputs['filter_3']),
-            connect(operands_buffer.output, macc.operands),
-        ]
+        m.submodules['operands_buffer'] = operands_buffer = OperandsBuffer()
+        for i in range(4):
+            m.d.comb += connect(input_store.data_output[i],
+                                operands_buffer.input_data[i])
+            m.d.comb += connect(filter_store.output[i],
+                                operands_buffer.filter_data[i])
+        m.d.comb += connect(operands_buffer.output, macc.operands)
 
         result_stream = get.input_streams[Constants.REG_MACC_OUT]
         m.d.comb += connect(macc.result, result_stream)
