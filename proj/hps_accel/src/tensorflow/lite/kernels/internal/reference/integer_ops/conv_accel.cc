@@ -85,6 +85,9 @@ void ConvPerChannel4x4(const ConvParams& params,
   const int max_output_channels_per_load =
       MAX_FILTER_WORDS / filter_words_per_output_channel;
 
+  uint32_t cnt = 0;
+  bool printit = true;
+
   for (int out_channel_offset = 0; out_channel_offset < output_depth;
        out_channel_offset += max_output_channels_per_load) {
     const int output_channels = std::min(output_depth - out_channel_offset,
@@ -115,13 +118,33 @@ void ConvPerChannel4x4(const ConvParams& params,
              ++out_channel) {
           int iterations = filter_height * filter_width * input_depth / 16;
           hps_accel::AdvanceFilterInput(iterations);
+          // if (printit) printf("ADV: %d\n", iterations);
           int32_t acc = 0;
           for (int i = 0; i < iterations; ++i) {
-            acc += multiply_accumulate();
+            int32_t out = multiply_accumulate();
+            // if (printit) printf("OUT: %ld\n", out);
+            acc += out;
           }
 
-          acc = hps_accel::PostProcess(acc);
-          output_data[Offset(output_shape, 0, out_y, out_x, out_channel)] = acc;
+          if (printit) printf("ACC %lu: %ld\n", cnt, acc);
+
+          int32_t hwpp_acc = hps_accel::PostProcess(acc);
+          // output_data[Offset(output_shape, 0, out_y, out_x, out_channel)] =
+          // acc;
+          if (printit) printf("POST HW %lu: %ld\n", cnt, hwpp_acc);
+
+          // Herewith original tflm software post-processing:
+          acc += bias_data[out_channel];
+          acc = MultiplyByQuantizedMultiplier(
+              acc, output_multiplier[out_channel], output_shift[out_channel]);
+          acc += output_offset;
+          acc = std::max(acc, output_activation_min);
+          acc = std::min(acc, output_activation_max);
+          if (printit) printf("POST SW %lu: %ld\n", cnt, acc);
+          output_data[Offset(output_shape, 0, out_y, out_x, out_channel)] =
+              static_cast<int8_t>(acc);
+
+          cnt += 1;
         }
       }
     }

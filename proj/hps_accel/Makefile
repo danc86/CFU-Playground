@@ -56,7 +56,7 @@ TEST_MENU_ITEMS=3 q
 export EXTRA_LITEX_ARGS
 ifeq '$(TARGET)' 'digilent_arty'
 # Cannot meet timing at 100MHz, reduce to 80MHz
-EXTRA_LITEX_ARGS += --sys-clk-freq 80000000
+EXTRA_LITEX_ARGS += --sys-clk-freq 75000000
 endif
 
 # Add constants defined in gateware/constants.py to C++ build
