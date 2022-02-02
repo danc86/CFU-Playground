@@ -45,7 +45,8 @@
 	url = https://github.com/pallets/markupsafe.git
 [submodule "third_party/python/litespi"]
 	path = third_party/python/litespi
-	url = https://github.com/litex-hub/litespi.git
+	url = https://github.com/danc86/litespi.git
+	branch = mmap-no-csrs
 [submodule "third_party/python/litehyperbus"]
 	path = third_party/python/litehyperbus
 	url = https://github.com/litex-hub/litehyperbus.git
