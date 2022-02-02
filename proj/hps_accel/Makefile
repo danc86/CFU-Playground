@@ -93,7 +93,7 @@ export PLATFORM=hps
 endif
 
 ifeq '$(PLATFORM)' 'hps'
-EXTRA_LITEX_ARGS += --parallel
+EXTRA_LITEX_ARGS += --nextpnr-seed 38
 CFU_GEN_EXTRA_ARGS += --specialize-nx
 endif
 

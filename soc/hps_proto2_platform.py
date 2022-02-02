@@ -105,6 +105,7 @@ _oxide_custom_build_template = [
 _oxide_router1_build_template = [
     'yosys -l {build_name}.rpt {build_name}.ys',
     ('nextpnr-nexus '
+     '--placer-heap-timingweight 52 '
      '--json {build_name}.json '
      '--pdc {build_name}.pdc '
      '--fasm {build_name}.fasm '
@@ -114,7 +115,6 @@ _oxide_router1_build_template = [
      '{timefailarg} '
      '{ignoreloops} '
      '--seed {seed} '
-     '--router router1'
      ),
     'prjoxide pack {build_name}.fasm {build_name}.bit',
 ]
